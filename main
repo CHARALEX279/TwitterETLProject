@@ -12,9 +12,7 @@ import pandas as pd
 import requests
 import os
 import json
-import csv
-import datetime
-import twitter_ETL_keys_files
+import twitter_ETL_keys_files # this is the py file where you can store keys and the csv function
 
 
 # raise error if query string is too long
