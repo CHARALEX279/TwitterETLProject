@@ -1,0 +1,213 @@
+import openpyxl
+from openpyxl import Workbook
+from openpyxl import load_workbook
+import datetime
+from datetime import datetime
+import dateutil.parser
+import unicodedata
+import time
+import tweepy
+import csv
+import pandas as pd
+import requests
+import os
+import json
+import csv
+import datetime
+import twitter_ETL_keys_files
+
+
+# raise error if query string is too long
+class QueryNotInCharacterRange(Exception):
+    """Exception raised for errors in the input query.
+
+    Attributes:
+        query -- input query string which caused the error
+        message -- explanation of the error
+    """
+
+    def __init__(self, query, message="Character count of query string is not in (1, 512) character range."):
+        self.query = query
+        self.message = message
+        super().__init__(self.message)
+
+
+# this function will take keywords listed in an excel, xlsx file and concatenate
+# them into a string for a query under 512 characters, and will return a list of queries.
+# input file must be xlsx
+
+def makeQuery(workbookPath):
+    qList = []
+
+    wb = openpyxl.load_workbook(workbookPath)
+
+    sheet_obj = wb.active
+    columns = sheet_obj.max_column
+    rows = sheet_obj.max_row
+
+    for c in range(1, columns + 1):  # iterate through column
+        q = ""
+        for r in range(1, rows + 1):  # iterate down each column
+            if q == "":  # condition for first word
+                cell_obj = sheet_obj.cell(row=r, column=c)
+                l = cell_obj.value
+                if l == "":
+                    continue
+                else:
+                    q = "(" + l
+            else:
+                cell_obj = sheet_obj.cell(row=r, column=c)
+                l = cell_obj.value
+                if l == "":
+                    continue
+                else:
+                    q = q + " OR " + l
+
+        q = "(afib OR (atrial fibrillation) OR #af) " + q + ") lang:en -is:retweet"  # add final query operators
+        if not 1 < len(q) <= 512:
+            print("error: query from column " + str(c) + ", len: " + str(len(q)))
+            raise QueryNotInCharacterRange(q)
+
+        else:
+            qList.append(q)
+
+    return qList
+
+
+# Use below code to test the query output
+# path = "C:\\Users\\cobbc07\\Downloads\\keywords_for_query (1).xlsx"
+# testQuery1 = makeQuery(path)
+# for i in testQuery1:
+#    print(len(i))
+#    print(i)
+#    print("\n\n_________")
+# print(len(testQuery1))
+# print(testQuery1)
+
+
+# this function appends tweets to a LIVING csv file. does not make a new csv file
+def appenedToCSV(fileName, newTweetsObj):
+    newTweets = newTweetsObj
+    tweetsDict = {}
+    tweetsDict = newTweets.json()
+
+    csvFile = open(fileName, "a", newline="", encoding='utf-8')
+    write = csv.writer(csvFile, delimiter="\t")
+
+    if tweetsDict == {}:
+        return
+
+    else:
+        tweetsMeta = tweetsDict['meta']  # Extract 'meta' dict_objecct from dictionary
+        if tweetsMeta['result_count'] == 0:
+            print("no matches for this query")
+            return
+
+        latestMetaID = tweetsMeta['newest_id']
+        tweetsData = tweetsDict['data']  # Extract "data" dict_objecct from dictionary
+        tweetsUser = tweetsDict['includes']  # Extract "includes" dict_objecct from dictionary, holds user info
+        users = {u["id"]: u for u in tweetsUser['users']}  # create list of 'id' values from the user dict_objecct
+
+        results = pd.read_csv(csvFileName)
+
+        for tweet in tweetsData:
+            if tweet['id'] in results:
+                continue
+
+            else:
+                createdAt = dateutil.parser.parse(tweet['created_at'])
+                tweetId = tweet['id']
+
+                # clean the text of commas and newlines
+                t = tweet['text']
+                tNewline = t.replace(',', ' ')
+                tweetText = tNewline.replace('\n', ' ')
+
+                authorId = tweet['author_id']
+
+                if users[authorId]:
+                    user = users[authorId]
+                    userName = user['name']
+
+                    # clean the bio of commas and newlines
+                    u = user['description']
+                    uNewline = u.replace(',', ' ')
+                    userBio = uNewline.replace('\n', ' ')
+
+                else:
+                    userName = "Not_Available"
+                    userBio = "Not_Available"
+
+                res = [createdAt, tweetId, tweetText, authorId, userName, userBio, latestMetaID]
+                write.writerow(res)
+
+    csvFile.close()
+
+
+# this function calls the api, creates custom query by calling the makeQuery() function,
+# and adds pulled tweets to a csv file with appenedToCSV() function
+def createTwitterDataset(keywordWorkbook, csvFileName, bearerToken, consumerKey, consumerSecretKey, accessToken,
+                         secretToken):
+    client = tweepy.Client(
+        bearer_token=bearerToken,
+        consumer_key=consumerKey,
+        consumer_secret=consumerSecretKey,
+        access_token=accessToken,
+        access_token_secret=secretToken,
+        return_type=requests.Response,
+        wait_on_rate_limit=True
+    )
+
+    queryList = []
+    queryList = makeQuery(keywordWorkbook) #this function can be replaced by your own query. Example query: #platinumjubilee lang:en -is:retweet
+
+    rowNum = len(results)  # number of rows not including header
+    count = 1
+    sinceId = ""
+    metaNewId = ""
+
+    for i in queryList:
+        print("running query: " + str(count))
+        # extract tweets from last 7 days with call
+        newTweets = client.search_recent_tweets(query=i,
+                                                max_results=100,
+                                                tweet_fields=['created_at'],
+                                                expansions='author_id',
+                                                user_fields=['description'],
+                                                user_auth=True)
+
+        count += 1
+        appenedToCSV(csvFileName, newTweets)
+
+        time.sleep(5)
+
+    now = datetime.now()
+
+    current_time = now.strftime("%H:%M:%S")
+    print("search is complete!")
+    print("Last tweet pulled at = ", current_time)
+    
+
+
+def main():
+    # twitter_ETL_keys_files.py is used to save secret keys from the API. These should be updated to your own use. Never share your keys!
+    twitter_ETL_keys_files.makeNewCSV()
+
+    keywordWorkbook = twitter_ETL_keys_files.keyWordXlsx
+    csvFileName = twitter_ETL_keys_files.csvFile
+    bearerToken = twitter_ETL_keys_files.bearerToken
+    consumerKey = twitter_ETL_keys_files.consumerKey
+    consumerSecretKey = twitter_ETL_keys_files.consumerSecretKey
+    accessToken = twitter_ETL_keys_files.accessToken
+    secretToken = twitter_ETL_keys_files.secretToken
+
+    createTwitterDataset(keywordWorkbook, csvFileName, bearerToken, consumerKey, consumerSecretKey, accessToken,
+                         secretToken)
+
+    now = datetime.now()
+    current_time = now.strftime("%H:%M:%S")
+    print("Current Time =", current_time)
+
+
+if __name__ == "__main__":
+    main()
