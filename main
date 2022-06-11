@@ -159,14 +159,20 @@ def createTwitterDataset(keywordWorkbook, csvFileName, bearerToken, consumerKey,
     )
 
     queryList = []
-    queryList = makeQuery(keywordWorkbook) #this function can be replaced by your own query. Example query: #platinumjubilee lang:en -is:retweet
+    queryList = makeQuery(keywordWorkbook) # this function can be replaced by a list of your own queries. 
+                                           # Example query: ["#platinumjubilee lang:en -is:retweet", "#QueenElizabeth lang:en -is:retweet"]
+    
 
     rowNum = len(results)  # number of rows not including header
-    count = 1
+    count = 0
     sinceId = ""
     metaNewId = ""
 
     for i in queryList:
+        if count == 0:
+            twitter_ETL_keys_files.makeNewCSV(csvFileName)
+        
+        count += 1   
         print("running query: " + str(count))
         # extract tweets from last 7 days with call
         newTweets = client.search_recent_tweets(query=i,
@@ -176,7 +182,7 @@ def createTwitterDataset(keywordWorkbook, csvFileName, bearerToken, consumerKey,
                                                 user_fields=['description'],
                                                 user_auth=True)
 
-        count += 1
+        
         appenedToCSV(csvFileName, newTweets)
 
         time.sleep(5)
@@ -191,8 +197,6 @@ def createTwitterDataset(keywordWorkbook, csvFileName, bearerToken, consumerKey,
 
 def main():
     # twitter_ETL_keys_files.py is used to save secret keys from the API. These should be updated to your own use. Never share your keys!
-    twitter_ETL_keys_files.makeNewCSV()
-
     keywordWorkbook = twitter_ETL_keys_files.keyWordXlsx
     csvFileName = twitter_ETL_keys_files.csvFile
     bearerToken = twitter_ETL_keys_files.bearerToken
